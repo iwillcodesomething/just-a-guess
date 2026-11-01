@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createServer as createViteServer} from 'vite';
 process.env.DATABASE_PATH=':memory:';
-const realFetch=globalThis.fetch,RealDate=Date,clock='2026-11-01T12:00:00Z';
+const realFetch=globalThis.fetch,RealDate=Date;let clock='2026-11-01T12:00:00Z';
 globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[clock]))}static now(){return new RealDate(clock).getTime()}};
 globalThis.fetch=async(input,options)=>{
  const u=new URL(input);
@@ -22,9 +22,12 @@ globalThis.fetch=async(input,options)=>{
  throw new Error('Unexpected UI fixture URL: '+u);
 };
 const {makeServer}=await import('../backend/src/server.mjs');
+const {sql}=await import('../backend/src/runtime.mjs');
 const server=makeServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const apiBase='http://127.0.0.1:'+server.address().port;
 const account=await(await realFetch(apiBase+'/v1/auth/guest',{method:'POST'})).json();
+// Deterministic test-only goal; production goals remain server-random.
+sql.prepare('INSERT INTO daily_ad_progress(user_id,day,goal) VALUES(?,?,1)').run(account.userId,'2026-11-01');
 const vite=await createViteServer({configFile:'mobile/vite.config.ts',server:{host:'127.0.0.1',port:5174,strictPort:true}});await vite.listen();
 const profile=mkdtempSync(join(tmpdir(),'jag-chrome-'));
 const browser=spawn(process.env.CHROME_BIN||'google-chrome',['--headless=new','--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--remote-debugging-port=9222','--user-data-dir='+profile,'about:blank'],{stdio:'ignore'});
@@ -70,6 +73,9 @@ try{
  assert(await evaluate(`!document.querySelector('.answer-options')`));
  await evaluate('window.__adEarned=true');await click('.modal-submit');await wait(`document.querySelector('.answer-options')`,'verified reward enables edit');
  await click('.answer-options button:nth-child(2)');await click('.modal-submit');await wait(`document.querySelector('.success-view')`,'rewarded edit saved');await click('.success-view>.primary');console.log('PASS skipped ad preserves prediction, completed mock SDK reward unlocks one edit');
+ await click('.personal-entry');await wait(`document.querySelector('.edit-limit-note')`,'one edit becomes read-only');assert(await evaluate(`!document.querySelector('.ad-test-label')`));await click('.modal-close');console.log('PASS used edit cannot be purchased again');
+ await click('.extra-reward-card .primary');await wait(`document.querySelector('.extra-reward-card')?.dataset.bonus==='1'`,'extra personal quota');assert(await evaluate(`document.querySelector('.explore-quota strong').textContent.includes('/4')`));console.log('PASS completed mock SDK ad grants extra quota and updates progress');
+
  await click('.mobile-nav button:last-child');await wait(`document.querySelector('.reward-theme-card')`,'theme placement');await click('.reward-theme-card button');await wait(`document.querySelector('.app-shell.theme-aurora')`,'rewarded theme');console.log('PASS optional theme reward');
  await click('.mobile-nav button:nth-child(2)');await wait(`document.querySelectorAll('.explore-category').length===6`,'explore restored');
 
@@ -81,6 +87,19 @@ try{
    await click('.explore-preview-button');await wait(`document.querySelector('.explore-preview h3')`,'preview '+id);console.log('PASS '+id+' interactive preview');
  }
  await category('events');await wait(`[...document.querySelectorAll('.explore-field option')].some(o=>o.value==='auto:global-quakes')`,'automatic daily events');await select('1 · Günlük olay','auto:global-quakes');await select('2 · Hedef gün','14');await click('.explore-preview-button');await wait(`document.querySelector('.explore-preview h3')?.textContent.includes('deprem kaydı')`,'daily event preview');console.log('PASS visible automatic daily events and 14-day horizon');
+
+ // Verified result fixtures exercise a stored jackpot and a truthful wrong-threshold view.
+ const personal=sql.prepare('SELECT * FROM explorations WHERE user_id=? LIMIT 1').get(account.userId);
+ sql.prepare("UPDATE explorations SET status='resolved',outcome=1,score=96,actual_value=0.8 WHERE user_id=? AND id=?").run(account.userId,personal.id);
+ sql.prepare("INSERT INTO result_bonuses(user_id,question_id,scope,multiplier,xp,claimed_at) VALUES(?,?,'personal',10,100,?)").run(account.userId,personal.id,clock);
+ await cdp('Page.reload');await wait(`document.querySelector('.discover-banner')`,'reloaded result');await click('.discover-banner');await wait(`document.querySelector('.personal-entry')`,'result entry');await click('.personal-entry');await wait(`document.querySelector('.result-bonus .primary')`,'bonus reward');await click('.result-bonus .primary');await wait(`document.querySelector('.bonus-multiplier')?.textContent==='x10'`,'large stored XP reveal');console.log('PASS stored x10 XP reveals without changing competitive points');
+ sql.prepare("UPDATE explorations SET outcome=0,score=36,actual_value=1.2 WHERE user_id=? AND id=?").run(account.userId,personal.id);
+ const question=sql.prepare('SELECT * FROM questions ORDER BY position LIMIT 1').get();sql.prepare("UPDATE questions SET status='resolved',outcome=0,actual_value=3 WHERE id=?").run(question.id);
+ sql.prepare('INSERT INTO predictions(user_id,question_id,choice,confidence,created,updated,score) VALUES(?,?,0,80,?,?,96)').run(account.userId,question.id,clock,clock);
+ clock='2026-11-01T12:00:01Z';await cdp('Page.reload');await wait(`document.querySelector('.discover-banner')`,'rank baseline');await click('.discover-banner');await wait(`document.querySelector('.personal-entry')`,'wrong result');await click('.personal-entry');await wait(`document.querySelector('.threshold-distance')`,'real threshold distance');assert(await evaluate(`document.querySelector('.threshold-distance').textContent.includes('0,2')`));assert(await evaluate(`!document.querySelector('.result-bonus')`));console.log('PASS wrong forecast displays actual 0.2 threshold difference without a fake win');
+ sql.prepare("INSERT INTO users(id,name,code,created) VALUES('ui-rival','QA Rival','QARIVAL1',?)").run(clock);
+ sql.prepare('INSERT INTO predictions(user_id,question_id,choice,confidence,created,updated,score) VALUES(?,?,0,95,?,?,99.75)').run('ui-rival',question.id,clock,clock);
+ clock='2026-11-01T12:00:02Z';await cdp('Page.reload');await wait(`document.querySelector('.notification-button')`,'rank change load');await click('.notification-button');await wait(`document.querySelector('.rank-notices')`,'real rank notice');assert(await evaluate(`document.querySelector('.rank-notices').textContent.includes('2. sıraya')`));console.log('PASS notification reflects a real ranking change');
  mkdirSync('outputs',{recursive:true});
  const image=await cdp('Page.captureScreenshot',{format:'png'});writeFileSync('outputs/ui-phone.png',Buffer.from(image.data,'base64'));
  await cdp('Emulation.setDeviceMetricsOverride',{width:768,height:1024,deviceScaleFactor:1,mobile:true});

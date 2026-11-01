@@ -1,4 +1,4 @@
-import {rewardedEdit} from './rewards.ts';
+import {rewardedEdit,dailyRewardState} from './rewards.ts';
 import {env} from './runtime.ts';
 import {dayOf,shiftDay,safeJSON,confidenceSteps,scoreFor} from './game.ts';
 import {fail,all,first,run,source,country,region,SPORTS,METRICS,CURRENCIES,language,topics,products,onlineProducts,articleViews,utcDay,providerTime,HORIZONS,AUTO_EVENTS,quakeURL} from './catalog.ts';
@@ -88,11 +88,11 @@ export async function preview(userId:string,body:any) {
  await run('INSERT INTO source_cache(key,value,expires) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,expires=excluded.expires','explore:draft:'+userId,JSON.stringify(q),now+10*60000);
  return {...q,draftId:id};
 }
-export function publicEntry(row:any) {return {...safeJSON(row.question),id:row.id,day:row.day,scope:'explore',status:row.status,outcome:row.outcome,evidence:row.evidence,resolved_at:row.resolved_at,prediction:{choice:row.choice,confidence:row.confidence,score:row.score,created:row.created,seen:!!row.seen}}}
+export function publicEntry(row:any) {return {...safeJSON(row.question),id:row.id,day:row.day,scope:'explore',status:row.status,outcome:row.outcome,evidence:row.evidence,resolved_at:row.resolved_at,actual_value:row.actual_value,prediction:{choice:row.choice,confidence:row.confidence,score:row.score,created:row.created,seen:!!row.seen,editsUsed:Number(row.edits||0),editsRemaining:Math.max(0,1-Number(row.edits||0))}}}
 export async function explorationState(id:string) {
  const history=(await all('SELECT * FROM explorations WHERE user_id=? ORDER BY created DESC LIMIT 100',id)).map(publicEntry);
  const today=await first('SELECT COUNT(*) AS n FROM explorations WHERE user_id=? AND day=?',id,dayOf());
- return {history,used:Number(today.n),limit:2,remaining:Math.max(0,2-Number(today.n))};
+ const rewards=await dailyRewardState(id),limit=3+rewards.bonus;return {history,used:Number(today.n),baseLimit:3,limit,remaining:Math.max(0,limit-Number(today.n)),rewards};
 }
 export async function saveExploration(id:string,body:any) {
  const existing=await first('SELECT * FROM explorations WHERE user_id=? AND id=?',id,String(body.id));
@@ -106,15 +106,15 @@ export async function saveExploration(id:string,body:any) {
  if((existing&&existing.status!=='open')||Date.parse(q.close_at)<=Date.now())fail('Bu tahminin süresi doldu.');
  if(!Number.isInteger(body.choice)||body.choice<0||body.choice>=q.options.length||!confidenceSteps.includes(body.confidence))fail('Seçimini ve güvenini kontrol et.');
  if(existing) {
-   if(existing.choice!==body.choice||existing.confidence!==body.confidence)await rewardedEdit(id,body.adTicket,'personal/'+q.id,"UPDATE explorations SET choice=?,confidence=? WHERE user_id=? AND id=? AND status='open' AND close_at>?",[body.choice,body.confidence,id,q.id,new Date().toISOString()]);
+   if(existing.choice!==body.choice||existing.confidence!==body.confidence)await rewardedEdit(id,body.adTicket,'personal/'+q.id,"UPDATE explorations SET choice=?,confidence=?,edits=edits+1 WHERE user_id=? AND id=? AND status='open' AND close_at>? AND edits=0",[body.choice,body.confidence,id,q.id,new Date().toISOString()]);
  } else {
-   // Two unique slots enforce the daily limit even under concurrent requests.
+   // Unique slots and server-side earned limits prevent concurrent quota farming.
    const today=dayOf();if(q.day!==today)fail('Gün değişti. Önizlemeyi yeniden aç.');let saved=false;
-   for(const slot of [1,2]) {
+   const rewards=await dailyRewardState(id),limit=3+rewards.bonus;for(let slot=1;slot<=limit;slot++) {
      await run('INSERT INTO explorations(user_id,id,day,slot,category,question,choice,confidence,created,close_at,resolve_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',id,q.id,today,slot,q.category,JSON.stringify(q),body.choice,body.confidence,new Date().toISOString(),q.close_at,q.resolve_at);
      const current=await first('SELECT choice,confidence FROM explorations WHERE user_id=? AND id=?',id,q.id);if(current){if(current.choice!==body.choice||current.confidence!==body.confidence)fail('Bu tahmini değiştirmek için ödüllü reklam gerekir.',402);saved=true;break}
    }
-   if(!saved)fail('Bugünkü 2 kişisel tahminini kullandın. Yarın yeni konular seçebilirsin.',409);
+   if(!saved)fail('Bugünkü kişisel tahmin haklarını kullandın. Ek hak için reklam ilerlemeni kontrol et.',409);
  }
  return {message:'Kişisel tahminin kaydedildi. Genel sıralaman etkilenmedi.'};
 }
@@ -124,7 +124,7 @@ export async function resolveRule(q:any):Promise<any> {
    const result=await source(`weather-result:${rule.latitude}:${rule.longitude}:${rule.metric}:${rule.timezone}`,`https://api.open-meteo.com/v1/forecast?latitude=${rule.latitude}&longitude=${rule.longitude}&daily=${rule.metric}&timezone=${encodeURIComponent(rule.timezone)}&past_days=7&forecast_days=1`,900000);
    const index=result.data.daily?.time?.indexOf(rule.date),value=index>=0?result.data.daily?.[rule.metric]?.[index]:null;
    if(typeof value!=='number'||!Number.isFinite(value))return null;
-   return {outcome:value>=rule.threshold?0:1,evidence:`${rule.date} · ${value} ${rule.unit}. Open-Meteo günlük model kaydı. Kontrol: ${result.updatedAt}.`};
+   return {outcome:value>=rule.threshold?0:1,actualValue:value,evidence:`${rule.date} · ${value} ${rule.unit}. Open-Meteo günlük model kaydı. Kontrol: ${result.updatedAt}.`};
  }
  if(rule.type==='sport-custom') {
    const result=await source('event:'+rule.eventId,'https://www.thesportsdb.com/api/v1/json/123/lookupevent.php?id='+rule.eventId,90000),e=result.data.events?.[0];if(!e)return null;
@@ -135,35 +135,35 @@ export async function resolveRule(q:any):Promise<any> {
    if(rule.sport==='Soccer'&&((Number(e.intHomeScoreExtra)||0)+(Number(e.intAwayScoreExtra)||0)>0||/extra|penalt/i.test(String(e.strResult||''))))return {outcome:null,evidence:'Uzatma veya penaltı kapsamı belirsiz final skoru.'};
    if(!/^\d+(\.\d+)?$/.test(String(e.intHomeScore))||!/^\d+(\.\d+)?$/.test(String(e.intAwayScore)))return null;
    const h=Number(e.intHomeScore),a=Number(e.intAwayScore),outcome=rule.market==='winner'?(h>a?0:h===a?1:2):rule.market==='both'?(h>=1&&a>=1?0:1):(h+a>rule.threshold?0:1);
-   return {outcome,evidence:`${e.strHomeTeam} ${h} – ${a} ${e.strAwayTeam}. TheSportsDB final kaydı (${status}).`};
+   return {outcome,actualValue:rule.market==='total'?h+a:null,evidence:`${e.strHomeTeam} ${h} – ${a} ${e.strAwayTeam}. TheSportsDB final kaydı (${status}).`};
  }
  if(rule.type==='crypto') {
    const target=Date.parse(rule.target),end=new Date(target+60000).toISOString();
    const result=await source('candle:'+rule.product+':'+rule.target,`https://api.exchange.coinbase.com/products/${rule.product}/candles?granularity=60&start=${encodeURIComponent(rule.target)}&end=${encodeURIComponent(end)}`,900000);
    const candle=Array.isArray(result.data)?result.data.find(c=>c[0]===target/1000):null,value=Number(candle?.[4]);if(!candle||!Number.isFinite(value)||value<=0)return null;
    const change=(value/rule.baseline-1)*100,yes=rule.market==='up'?value>rule.baseline:Math.abs(change)>=rule.threshold;
-   return {outcome:yes?0:1,evidence:`Coinbase ${rule.product}; ${rule.target} 1 dakikalık mum kapanışı ${value} USD. Başlangıç ${rule.baseline} USD. Değişim %${change.toFixed(4)}.`};
+   return {outcome:yes?0:1,actualValue:value,evidence:`Coinbase ${rule.product}; ${rule.target} 1 dakikalık mum kapanışı ${value} USD. Başlangıç ${rule.baseline} USD. Değişim %${change.toFixed(4)}.`};
  }
  if(rule.type==='fx') {
    const result=await source('fx-result:'+rule.base+':'+rule.quote+':'+rule.date,`https://api.frankfurter.dev/v2/providers/ecb/rate/${rule.base}/${rule.quote}?date=${rule.date}`,900000),value=Number(result.data.rate);
    if(result.data.date!==rule.date||!Number.isFinite(value))return null;
-   return {outcome:value>rule.baseline?0:1,evidence:`${rule.date} ECB kaydı: 1 ${rule.base} = ${value} ${rule.quote}. Başlangıç: ${rule.baseline}. Kaynak: Frankfurter / ECB.`};
+   return {outcome:value>rule.baseline?0:1,actualValue:value,evidence:`${rule.date} ECB kaydı: 1 ${rule.base} = ${value} ${rule.quote}. Başlangıç: ${rule.baseline}. Kaynak: Frankfurter / ECB.`};
  }
  if(rule.type==='wiki') {
    const result=await articleViews(rule.language,rule.article,rule.date),value=result.data.items?.[0]?.views;
    if(!Number.isFinite(value))return null;
-   return {outcome:value>=rule.threshold?0:1,evidence:`${rule.date} UTC · ${rule.language}.wikipedia.org/${rule.article}: ${value} sayfa görüntülenmesi. Wikimedia all-access/user.`};
+   return {outcome:value>=rule.threshold?0:1,actualValue:value,evidence:`${rule.date} UTC · ${rule.language}.wikipedia.org/${rule.article}: ${value} sayfa görüntülenmesi. Wikimedia all-access/user.`};
  }
  if(rule.type==='event-quake') {
    const result=await source('usgs-result:'+rule.date+':'+rule.magnitude+':'+rule.regional,quakeURL(rule.date,rule),900000),value=result.data.count;
    if(!Number.isInteger(value)||value<0)return null;
-   return {outcome:value>=rule.threshold?0:1,evidence:`${rule.date} UTC · USGS M${rule.magnitude}+ deprem kaydı: ${value}. İlk doğrulanan katalog sayısı; kontrol ${result.updatedAt}.`};
+   return {outcome:value>=rule.threshold?0:1,actualValue:value,evidence:`${rule.date} UTC · USGS M${rule.magnitude}+ deprem kaydı: ${value}. İlk doğrulanan katalog sayısı; kontrol ${result.updatedAt}.`};
  }
  if(rule.type==='event-kp') {
    const result=await source('noaa-kp','https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json',900000);
    const rows=(Array.isArray(result.data)?result.data:[]).filter((r:any)=>r?.time_tag?.startsWith(rule.date)&&Number.isFinite(Number(r.Kp))&&Number(r.Kp)>=0&&Number(r.Kp)<=9);
    const slots=new Map(rows.map((r:any)=>[r.time_tag,Number(r.Kp)]));if(slots.size!==8)return null;
-   const value=Math.max(...slots.values() as any);return {outcome:value>=rule.threshold?0:1,evidence:`${rule.date} UTC · NOAA SWPC: 8 adet üç saatlik kaydın en yüksek Kp değeri ${value}.`};
+   const value=Math.max(...slots.values() as any);return {outcome:value>=rule.threshold?0:1,actualValue:value,evidence:`${rule.date} UTC · NOAA SWPC: 8 adet üç saatlik kaydın en yüksek Kp değeri ${value}.`};
  }
  if(rule.type==='editorial') {
    const row=await first('SELECT * FROM questions WHERE id=?',rule.questionId);if(!row||row.status==='open')return null;
@@ -179,7 +179,7 @@ export async function settleExplorations() {
    if(now-Date.parse(row.resolve_at)>72*3600000)result={outcome:null,evidence:'72 saat içinde doğrulanabilir sonuç alınamadı; tahmin iptal edildi.'};
    else try{result=await resolveRule(q)}catch{return}
    if(!result)return;
-   await run("UPDATE explorations SET status=?,outcome=?,evidence=?,score=NULL,resolved_at=? WHERE user_id=? AND id=? AND status='open'",result.outcome===null?'void':'resolved',result.outcome,result.evidence,new Date().toISOString(),row.user_id,row.id);
+   await run("UPDATE explorations SET status=?,outcome=?,evidence=?,score=NULL,resolved_at=?,actual_value=? WHERE user_id=? AND id=? AND status='open'",result.outcome===null?'void':'resolved',result.outcome,result.evidence,new Date().toISOString(),Number.isFinite(result.actualValue)?result.actualValue:null,row.user_id,row.id);
  }));
  // Use the latest saved confidence after the terminal status locks editing.
  const unscored=await all("SELECT * FROM explorations WHERE status='resolved' AND score IS NULL LIMIT 300");

@@ -1,6 +1,6 @@
 import {api,showRewarded} from './api';
 async function ads(body:any){const r=await api('/v1/ads',{method:'POST',body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw new Error(d.error||'Reklam işlemi tamamlanamadı.');return d}
-export async function earnReward(purpose:'edit'|'theme',target:string,status:(text:string)=>void){
+export async function earnReward(purpose:'edit'|'theme'|'extra',target:string,status:(text:string)=>void){
  status('Reklam hazırlanıyor…');
  const prepared=await ads({action:'prepare',purpose,target});
  if(prepared.verified)return prepared.ticketId;
@@ -19,3 +19,4 @@ export async function earnReward(purpose:'edit'|'theme',target:string,status:(te
  throw new Error('Ödül doğrulaması gecikti. Biraz sonra yeniden dene; doğrulanan ödülün korunur.');
 }
 export async function redeemTheme(ticketId:string){return ads({action:'theme',ticketId})}
+export async function redeemExtra(ticketId:string){return ads({action:'extra',ticketId})}

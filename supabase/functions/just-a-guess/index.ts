@@ -22,7 +22,7 @@ async function body(req: Request) {
 Deno.serve(async req => {
   try {
     const path = new URL(req.url).pathname.replace(/^\/(?:functions\/v1\/)?just-a-guess(?=\/|$)/,''), method=req.method;
-    if(path==='/health'&&method==='GET') { await query('SELECT 1'); return reply(200,{ok:true,service:'just-a-guess-api',version:'0.5.0',database:'postgres'}); }
+    if(path==='/health'&&method==='GET') { await query('SELECT 1'); return reply(200,{ok:true,service:'just-a-guess-api',version:'0.6.0',database:'postgres'}); }
     if(path==='/v1/ads/ssv'&&method==='GET')return reply(200,await googleCallback(new URL(req.url)));
     if(method!=='GET'&&method!=='POST') return reply(405,{error:'Bu yöntem desteklenmiyor.'});
     if(path==='/maintenance'&&method==='POST') {

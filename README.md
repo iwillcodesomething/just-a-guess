@@ -8,7 +8,7 @@ Yalnızca Android APK olarak dağıtılan günlük tahmin oyunu. Mobil ekranlar 
 - APK içinde React ekranları, Android WebViewAssetLoader ve sınırlı native HTTP köprüsü.
 - ChatGPT hesabından bağımsız misafir hesabı, kullanıcı adı/parola kaydı, giriş ve çıkış.
 - Misafir hesabını kaydederken tahmin geçmişini koruma.
-- Her gün 3 ortak sıralama sorusu + kullanıcının seçtiği 2 kişisel tahmin; ayrıca ayrı, açıkça etiketli 2 antrenman sorusu.
+- Her gün 3 ortak sıralama sorusu + kullanıcının seçtiği 3 kişisel tahmin, reklamlarla en fazla +3; ayrıca ayrı, açıkça etiketli 2 antrenman sorusu.
 - Sunucuda zaman sınırı, seçim/güven doğrulaması ve deterministik Brier puanı.
 - Canlı Supabase Postgres veritabanı, XP, katılım serisi, rozetler ve sıralama.
 - Karşılıklı onaylı arkadaşlık; uygulama içi sonuç bildirimleri.
@@ -16,6 +16,18 @@ Yalnızca Android APK olarak dağıtılan günlük tahmin oyunu. Mobil ekranlar 
 - Uygulama kapalı olsa da 15 dakikada bir çalışan Supabase Cron sonuç kontrolü; kaynak çağrıları 15 dakika önbellekli.
 - Android Keystore ile şifrelenmiş oturum anahtarı, HTTPS bağlantısı, native dosya dışa aktarımı.
 - Docker Compose, isteğe bağlı Caddy HTTPS, kalıcı disk ve tutarlı yedekleme komutu.
+
+## 0.6.0 — Günlük ek haklar ve sonuç sunumu
+
+- Her gün 3 ücretsiz kişisel tahmin. İsteğe bağlı ek hak reklamlarıyla en fazla +3; günlük toplam kişisel sınır 6. Ortak 3 sıralama sorusu ayrıdır.
+- Her ek hak turunun reklam hedefi sunucuda eşit olasılıkla 1, 2 veya 3 seçilir. Hedef ve ilerleme reklam açılmadan önce gösterilir; yenilemek hedefi değiştirmez. Son tamamlanmış reklam bir ek hak verir, sonraki tur için yeni hedef seçilir. Üç ek hak en fazla 9 tamamlanmış reklam gerektirir. Erken kapatma ilerleme sağlamaz. Düzenleme ve tema reklamları bu ayrı ek hak ilerlemesine sayılmaz.
+- `daily_ad_progress` satırı kullanıcı + Türkiye takvim günü bazındadır. Günlük bonus 3, kişisel slot 6, tamamlanmış ek hak reklamı 9 üst sınırı DB kısıtları ve aynı transaction içindeki tek kullanımlık reklam tüketimiyle korunur. Aynı callback/istek tekrar edilince ikinci hak verilmez. Kullanılmayan haklar ve kısmi ilerleme ertesi güne devretmez; sıfırlama Europe/Istanbul 00.00.
+- Ortak ve kişisel her tahminde toplam yalnızca 1 değişiklik. İlk kayıt düzenleme sayılmaz; aynı verinin ağ tekrarı da yeni düzenleme değildir. Sunucu ve DB `edits<=1` koşulu uygular. Değişiklikten sonra arayüz salt görüntüleme sunar, ikinci düzenleme için yeni reklam açmaz. Önceki sürümde kullanılmış düzenlemeler migration sırasında korunur.
+- Doğru sonuçlarda ayrı, tek seferlik 10 taban XP bonusu: x0 %40, x1 %35, x2 %15, x5 %8, x10 %2. Yanlış sonuçta ek XP yoktur. `result_bonuses` kullanıcı/soru/kapsam benzersizliği tekrar açmada yeni çekilişi engeller. Bonus XP seviyeyi etkiler; Brier puanı, doğruluk ve liderlik sırasını etkilemez. Nakit/hediye değeri veya transfer özelliği yoktur.
+- Büyük bonuslar için belirgin sayaç, konfeti ve ayarlara bağlı kısa ses/titreşim eklenmiştir. Hareket azaltma tercihi konfeti/animasyonu kapatır. Doğrulanmış sonuçlar yapay olarak bekletilmez; bonus açılışındaki 650 ms geçiş yalnızca sunumdur.
+- Yanlış sayısal tahminlerde yalnızca kaynağın gerçek ölçümü ve eşikten mutlak fark gösterilir. Yanlış tahmin doğruymuş veya sahte bir “near-miss”miş gibi sunulmaz.
+- Seri her gün en az bir ortak veya kişisel tahminle sürer; tam bir gün atlanırsa sıfırlanır. Otomatik haftalık mola kaldırılmıştır. Önceki puanlar/XP/geçmiş silinmez.
+- Haftalık sıra gerçekten değiştiğinde uygulama içinde bildirim oluşur; hayali rakip/geçilme mesajı yoktur. Bildirim, açık uygulamadaki veri yenilemesine bağlıdır; FCM/push eklendiği iddia edilmez. Son 10 sıra bildirimi cihazda, kullanıcı kodu ve hafta bazında tutulur.
 
 ## 0.5.0 — Ödüllü reklamlar ve eksik veri akışları
 
@@ -53,7 +65,7 @@ Reklam birimi doluluğu ve sideload dağıtımındaki reklam uygunluğu Google'a
 | Kültür | 8 Wikipedia dili → en çok okunanlar veya müzik/sinema/spor/teknoloji/bilim/tarih → konu → görüntülenme eşiği | Wikimedia Analytics. Günlük UTC sayfa görüntülenmesi; yayın gecikmesi açıkça gösterilir. Sosyal medya veya Google Trends verisi olarak sunulmaz. |
 | Günlük olaylar | Editörün yayımladığı kaynaklı olay → evet/hayır | Mevcut içerik stüdyosu. Otomatik USGS/NOAA olayları ve yayımlandıkça editör kayıtları birlikte gösterilir. |
 
-Kişisel tahminler ayrı `jag.explorations` tablosunda saklanır. `(user_id,day,slot)` benzersizliği ve 1/2 slot kontrolü eşzamanlı isteklerde dahi günlük sınırı korur. Önizleme 10 dakika geçerlidir ve sunucuda ilgili kullanıcıya bağlıdır; istemcinin gönderdiği koordinat, kural veya başlangıç fiyatına güvenilmez. Düzenleme sorunun kapanışında biter. Kişisel puanlar genel sıralama, ortak soru XP'si ve katılım serisine eklenmez; Keşfet ve Tahminlerim ekranlarında ayrı listelenir. Silme/dışa aktarma kişisel tahminleri de kapsar.
+Kişisel tahminler ayrı `jag.explorations` tablosunda saklanır. `(user_id,day,slot)` benzersizliği ve 1–6 slot kontrolü eşzamanlı isteklerde dahi günlük sınırı korur. Önizleme 10 dakika geçerlidir ve sunucuda ilgili kullanıcıya bağlıdır; istemcinin gönderdiği koordinat, kural veya başlangıç fiyatına güvenilmez. Düzenleme sorunun kapanışında biter. Kişisel puanlar genel sıralama veya ortak soru XP'sine eklenmez; katılım günleri seriye, ayrı sonuç bonusları XP'ye eklenir; Keşfet ve Tahminlerim ekranlarında ayrı listelenir. Silme/dışa aktarma kişisel tahminleri de kapsar.
 
 Hava soruları seçilen şehrin IANA saat dilimini kullanır. Kripto hedefi sabit bir 1 dakikalık mum, döviz hedefi sabit bir referans tarihi, Wikipedia hedefi sabit bir UTC günüdür. Sonradan değişen anlık değerle geçmiş tahmin sonuçlandırılmaz. Kaynak erişilemezse beklenir; ilan edilen kontrol zamanından 72 saat sonra iptal edilir.
 
@@ -79,7 +91,7 @@ Open-Meteo sonuçları önceden tanımlı koordinat/gün için ilk alınan geçm
 - API: `https://lzqdnjrherdjfpuzhkgl.supabase.co/functions/v1/just-a-guess`.
 - Sağlık: API adresine `/health` eklenir; gerçek Postgres sorgusu çalıştırır.
 - Kod: `supabase/functions/just-a-guess/`. İş kuralları `backend/src` ile ortaktır. `node scripts/sync-cloud.mjs` dört çekirdek modülü ve coğrafya dizinini eşitler; CI `--check` ile sapmayı engeller.
-- `supabase/schema.sql` ilk kurulan özel `jag` şemasının, `supabase/exploration-schema.sql` kişisel tahmin tablosunun DDL kaydıdır; `public` tabloları korunur. Şema/tablo izinleri `anon` ve `authenticated` için kapalıdır, RLS açıktır. Politika bulunmaması kasıtlıdır: erişim yalnızca backend üzerinden, oturumun kullanıcı kimliğiyle yapılır.
+- `supabase/schema.sql` ilk kurulan özel `jag` şemasının, `supabase/exploration-schema.sql` kişisel tahmin tablosunun DDL kaydıdır; ek haklar ve sonuç XP’si için `daily-rewards-schema.sql` ve `result-bonuses-schema.sql` eklenmiştir; `public` tabloları korunur. Şema/tablo izinleri `anon` ve `authenticated` için kapalıdır, RLS açıktır. Politika bulunmaması kasıtlıdır: erişim yalnızca backend üzerinden, oturumun kullanıcı kimliğiyle yapılır.
 - Edge Function kendi opaque bearer oturumlarını doğruladığı için gateway `verify_jwt=false` kullanır. Supabase Auth JWT'si kullanılmaz. Sağlık/kayıt/giriş dışında veri yolları geçerli oturum ister; yönetici yetkisi ayrıca kontrol edilir.
 - `SUPABASE_DB_URL` yalnızca Edge Function'ın varsayılan sunucu ortamından okunur. APK'de ve repoda DB parolası veya service-role anahtarı yoktur.
 - `supabase/schedule.sql`: 15 dakikalık pg_cron → pg_net → özel bakım uç noktası. Bakım anahtarı Vault'ta üretilir; API yalnızca özetini karşılaştırır. `maintenance_at` başarılı son çalışmayı kaydeder. DB ve fonksiyon aynı bölgede çağrılır.
@@ -163,7 +175,7 @@ pnpm exec tsc --noEmit
 node scripts/build-android.mjs
 ```
 
-Android SDK 35 ve Java 17 gerekir. `ANDROID_HOME` SDK dizinini göstermelidir. Çıktı: `outputs/Just-a-Guess-0.5.0-beta.apk`. `JAG_API_URL=https://api.ornek.com` ile varsayılan sunucu adresi derlemeye eklenebilir; bu adres bir sır değildir. CI de aynı testleri ve APK derlemesini çalıştırır.
+Android SDK 35 ve Java 17 gerekir. `ANDROID_HOME` SDK dizinini göstermelidir. Çıktı: `outputs/Just-a-Guess-0.6.0-beta.apk`. `JAG_API_URL=https://api.ornek.com` ile varsayılan sunucu adresi derlemeye eklenebilir; bu adres bir sır değildir. CI de aynı testleri ve APK derlemesini çalıştırır.
 
 APK içindeki oturum token'ı React/JavaScript'e verilmez. Dış kaynak bağlantıları sistem tarayıcısında açılır; native köprü yalnızca paket içindeki içerikte kullanılır. APK yerel arayüz içerse de oyun kayıtları için backend bağlantısı gereklidir.
 

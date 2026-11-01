@@ -1,6 +1,6 @@
 import {readFileSync,writeFileSync} from 'node:fs';
 const check=process.argv.includes('--check');
-for(const name of ['engine.ts','game.ts','catalog.ts','explore.ts','rewards.ts']) {
+for(const name of ['engine.ts','game.ts','catalog.ts','explore.ts','rewards.ts','engagement.ts']) {
  const text=readFileSync('backend/src/'+name,'utf8').replaceAll('./runtime.mjs','./runtime.ts').replaceAll('../data-assets/geography.json','./geography.json');
  const target='supabase/functions/just-a-guess/'+name;
  if(check){if(readFileSync(target,'utf8')!==text)throw new Error(target+' is outdated; run node scripts/sync-cloud.mjs');}

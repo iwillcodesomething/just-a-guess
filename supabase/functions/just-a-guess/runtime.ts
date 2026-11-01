@@ -5,7 +5,7 @@ const client = postgres(Deno.env.get('SUPABASE_DB_URL')!, {
   prepare: false, max: 1, idle_timeout: 10, connect_timeout: 10,
   types: { integer64: { to: 20, from: [20], serialize: String, parse: Number } },
 });
-const tables = 'users|questions|predictions|practice|friends|app_settings|source_cache|accounts|sessions|auth_limits|explorations|ad_tickets';
+const tables = 'users|questions|predictions|practice|friends|app_settings|source_cache|accounts|sessions|auth_limits|explorations|ad_tickets|daily_ad_progress|result_bonuses';
 export function postgresQuery(query: string) {
   const ignore = /^INSERT OR IGNORE INTO /i.test(query);
   let n = 0;
