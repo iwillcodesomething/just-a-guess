@@ -1,0 +1,5 @@
+project_id = "just-a-guess"
+
+[functions.just-a-guess]
+# Custom opaque bearer authentication is enforced inside the function.
+verify_jwt = false

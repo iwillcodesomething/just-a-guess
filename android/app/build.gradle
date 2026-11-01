@@ -1,6 +1,7 @@
 plugins { id 'com.android.application' }
-def backendUrl = (project.findProperty('JAG_API_URL') ?: System.getenv('JAG_API_URL') ?: '').toString()
+def backendUrl = (project.findProperty('JAG_API_URL') ?: System.getenv('JAG_API_URL') ?: 'https://lzqdnjrherdjfpuzhkgl.supabase.co').toString()
 if (backendUrl && !backendUrl.startsWith('https://')) throw new GradleException('Release backend URL must use HTTPS')
+def apiPrefix = backendUrl == 'https://lzqdnjrherdjfpuzhkgl.supabase.co' ? '/functions/v1/just-a-guess' : ''
 android {
     namespace 'app.justaguess.mobile'
     compileSdk 35
@@ -8,9 +9,10 @@ android {
         applicationId 'app.justaguess.mobile'
         minSdk 26
         targetSdk 35
-        versionCode 200
-        versionName '0.2.0'
+        versionCode 300
+        versionName '0.3.0'
         manifestPlaceholders = [cleartextTraffic: 'false']
+        buildConfigField 'String', 'API_PATH_PREFIX', '"' + apiPrefix + '"'
         buildConfigField 'String', 'API_BASE_URL', '"' + backendUrl.replace('\\','\\\\').replace('"','\\"') + '"'
     }
     buildTypes {

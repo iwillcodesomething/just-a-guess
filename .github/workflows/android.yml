@@ -40,5 +40,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Just-a-Guess-Android-beta
-          path: outputs/Just-a-Guess-0.2.0-beta.apk
+          path: outputs/Just-a-Guess-0.3.0-beta.apk
           retention-days: 14
