@@ -46,7 +46,7 @@ try{
  socket.onmessage=async event=>{
    const msg=JSON.parse(event.data);
    if(msg.id){const pending=requests.get(msg.id);if(pending){requests.delete(msg.id);msg.error?pending.reject(new Error(msg.error.message)):pending.resolve(msg.result)}return}
-   if(msg.method==='Runtime.exceptionThrown')exceptions.push(msg.params.exceptionDetails.text);
+   if(msg.method==='Runtime.exceptionThrown')exceptions.push(msg.params.exceptionDetails.exception?.description||JSON.stringify(msg.params.exceptionDetails));
    if(msg.method==='Runtime.bindingCalled'&&msg.params.name==='__jagHost'){
      const {id,method,path,body}=JSON.parse(msg.params.payload);
      try{const response=await realFetch(apiBase+path,{method,headers:{Authorization:'Bearer '+account.token,'Content-Type':'application/json'},...(method==='POST'?{body:body||'{}'}:{})});const result={status:response.status,body:await response.json()};await evaluate(`window.__jagResponse(${JSON.stringify(id)},${JSON.stringify(result)})`)}catch(e){exceptions.push(e.message)}
@@ -99,7 +99,7 @@ try{
  clock='2026-11-01T12:00:01Z';await cdp('Page.reload');await wait(`document.querySelector('.discover-banner')`,'rank baseline');await click('.discover-banner');await wait(`document.querySelector('.personal-entry')`,'wrong result');await click('.personal-entry');await wait(`document.querySelector('.threshold-distance')`,'real threshold distance');assert(await evaluate(`document.querySelector('.threshold-distance').textContent.includes('0,2')`));assert(await evaluate(`!document.querySelector('.result-bonus')`));console.log('PASS wrong forecast displays actual 0.2 threshold difference without a fake win');
  sql.prepare("INSERT INTO users(id,name,code,created) VALUES('ui-rival','QA Rival','QARIVAL1',?)").run(clock);
  sql.prepare('INSERT INTO predictions(user_id,question_id,choice,confidence,created,updated,score) VALUES(?,?,0,95,?,?,99.75)').run('ui-rival',question.id,clock,clock);
- clock='2026-11-01T12:00:02Z';await cdp('Page.reload');await wait(`document.querySelector('.notification-button')`,'rank change load');await click('.notification-button');await wait(`document.querySelector('.rank-notices')`,'real rank notice');assert(await evaluate(`document.querySelector('.rank-notices').textContent.includes('2. sıraya')`));console.log('PASS notification reflects a real ranking change');
+ clock='2026-11-01T12:00:02Z';await cdp('Page.reload');await wait(`document.querySelector('.notification-button')`,'rank change load');await click('.notification-button');await wait(`document.querySelector('.rank-notices')`,'real rank notice');assert(await evaluate(`document.querySelector('.rank-notices').textContent.includes('2. sıraya')`));assert.equal(await evaluate(`document.querySelectorAll('.notification-item:not(.welcome-notification)').length`),2);assert(await evaluate(`document.querySelector('.notifications').textContent.includes('—')`));console.log('PASS real rank change, personal result notifications and legacy missing timestamps');
  mkdirSync('outputs',{recursive:true});
  const image=await cdp('Page.captureScreenshot',{format:'png'});writeFileSync('outputs/ui-phone.png',Buffer.from(image.data,'base64'));
  await cdp('Emulation.setDeviceMetricsOverride',{width:768,height:1024,deviceScaleFactor:1,mobile:true});
