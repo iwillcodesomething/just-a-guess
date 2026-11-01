@@ -15,6 +15,8 @@ globalThis.fetch=async(input,options)=>{
  if(u.hostname.includes('open-meteo'))return Response.json({current:{time:'2026-11-01T15:00',temperature_2m:18,relative_humidity_2m:55,wind_speed_10m:12}});
  if(u.hostname.includes('thesportsdb'))return Response.json(u.pathname.includes('search_all_leagues')?{countries:[{idLeague:'4339',strSport:'Soccer',strLeague:'Turkish Super Lig'}]}:{events:[{idEvent:'1234567',idLeague:'4339',strSport:'Soccer',strTimestamp:'2026-11-01T16:00:00',strLeague:'Turkish Super Lig',strHomeTeam:'Home',strAwayTeam:'Away',strStatus:'Not Started'}]});
  if(u.hostname.includes('coinbase'))return Response.json(u.pathname==='/products'?[{id:'BTC-USD',base_currency:'BTC',quote_currency:'USD',display_name:'BTC/USD',status:'online',trading_disabled:false}]:{price:'100',time:clock,volume:'10'});
+ if(u.hostname.includes('usgs'))return Response.json({count:13});
+ if(u.hostname.includes('noaa'))return Response.json(Array.from({length:8},(_,i)=>({time_tag:'2026-11-01T'+String(i*3).padStart(2,'0')+':00:00',Kp:2})));
  if(u.hostname.includes('frankfurter'))return Response.json({date:'2026-10-30',rate:49.9});
  if(u.hostname.includes('wikimedia'))return Response.json(u.pathname.includes('/top/')?{items:[{articles:[{article:'Taylor_Swift',views:1000}]}]}:{items:[{views:1100}]});
  throw new Error('Unexpected UI fixture URL: '+u);
@@ -48,7 +50,7 @@ try{
    }
  };
  await cdp('Page.enable');await cdp('Runtime.enable');await cdp('Runtime.addBinding',{name:'__jagHost'});
- await cdp('Page.addScriptToEvaluateOnNewDocument',{source:`window.JustAGuess={hasSession:()=>true,isGuest:()=>true,request:(id,method,path,body)=>window.__jagHost(JSON.stringify({id,method,path,body})),feedback:()=>{},logout:()=>{},saveExport:()=>{},getBaseUrl:()=>'',configureServer:()=>{}};const RealDate=Date;window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[${JSON.stringify(clock)}]))}static now(){return new RealDate(${JSON.stringify(clock)}).getTime()}};`});
+ await cdp('Page.addScriptToEvaluateOnNewDocument',{source:`window.JustAGuess={hasSession:()=>true,isGuest:()=>true,request:(id,method,path,body)=>window.__jagHost(JSON.stringify({id,method,path,body})),showRewardedAd:(id,ticket)=>setTimeout(()=>window.__jagResponse(id,{status:200,body:{earned:window.__adEarned!==false,test:true}}),20),cancelRewardedAd:()=>{},privacyOptions:()=>{},feedback:()=>{},logout:()=>{},saveExport:()=>{},getBaseUrl:()=>'',configureServer:()=>{}};const RealDate=Date;window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[${JSON.stringify(clock)}]))}static now(){return new RealDate(${JSON.stringify(clock)}).getTime()}};`});
  await cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
  await cdp('Page.navigate',{url:'http://127.0.0.1:5174/'});
  await wait(`document.querySelector('.discover-banner')`,'home');await click('.discover-banner');
@@ -63,12 +65,22 @@ try{
  await click('.explore-preview-button');await wait(`document.querySelector('.explore-preview h3')`,'weather preview');
  await click('.explore-preview>.primary');await wait(`document.querySelector('.answer-options')`,'prediction modal');await click('.answer-options button');await click('.modal-submit');
  await wait(`document.querySelector('.success-view')`,'saved prediction');await click('.success-view>.primary');await wait(`document.querySelector('.personal-entry')`,'personal history');console.log('PASS country → province → city → real API prediction → history');
+ await click('.personal-entry');await wait(`document.querySelector('.ad-test-label')`,'edit ad consent');
+ await evaluate('window.__adEarned=false');await click('.modal-submit');await wait(`document.querySelector('.toast')?.textContent.includes('Reklam tamamlanmadı')`,'skip ad keeps existing prediction');
+ assert(await evaluate(`!document.querySelector('.answer-options')`));
+ await evaluate('window.__adEarned=true');await click('.modal-submit');await wait(`document.querySelector('.answer-options')`,'verified reward enables edit');
+ await click('.answer-options button:nth-child(2)');await click('.modal-submit');await wait(`document.querySelector('.success-view')`,'rewarded edit saved');await click('.success-view>.primary');console.log('PASS skipped ad preserves prediction, completed mock SDK reward unlocks one edit');
+ await click('.mobile-nav button:last-child');await wait(`document.querySelector('.reward-theme-card')`,'theme placement');await click('.reward-theme-card button');await wait(`document.querySelector('.app-shell.theme-aurora')`,'rewarded theme');console.log('PASS optional theme reward');
+ await click('.mobile-nav button:nth-child(2)');await wait(`document.querySelectorAll('.explore-category').length===6`,'explore restored');
+
  await category('sport');await wait(`[...document.querySelectorAll('.explore-field option')].some(o=>o.value==='4339')`,'leagues');await select('3 · Lig','4339');await wait(`[...document.querySelectorAll('.explore-field option')].some(o=>o.value==='1234567')`,'matches');await select('4 · Yaklaşan','1234567');await click('.explore-preview-button');await wait(`document.querySelector('.explore-preview h3')?.textContent.includes('kim kazanır')`,'sports preview');console.log('PASS sport → country → league → match → question');
  for(const id of ['crypto','fx','culture']){
    await category(id);
+   if(id==='fx')await select('3 · Tahmin vadesi','30');
    if(id==='culture'){await wait(`[...document.querySelectorAll('.explore-field option')].some(o=>o.value==='Taylor_Swift')`,'Wikipedia topics');await select('3 · Konu','Taylor_Swift')}
    await click('.explore-preview-button');await wait(`document.querySelector('.explore-preview h3')`,'preview '+id);console.log('PASS '+id+' interactive preview');
  }
+ await category('events');await wait(`[...document.querySelectorAll('.explore-field option')].some(o=>o.value==='auto:global-quakes')`,'automatic daily events');await select('1 · Günlük olay','auto:global-quakes');await select('2 · Hedef gün','14');await click('.explore-preview-button');await wait(`document.querySelector('.explore-preview h3')?.textContent.includes('deprem kaydı')`,'daily event preview');console.log('PASS visible automatic daily events and 14-day horizon');
  mkdirSync('outputs',{recursive:true});
  const image=await cdp('Page.captureScreenshot',{format:'png'});writeFileSync('outputs/ui-phone.png',Buffer.from(image.data,'base64'));
  await cdp('Emulation.setDeviceMetricsOverride',{width:768,height:1024,deviceScaleFactor:1,mobile:true});

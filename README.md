@@ -17,16 +17,41 @@ Yalnızca Android APK olarak dağıtılan günlük tahmin oyunu. Mobil ekranlar 
 - Android Keystore ile şifrelenmiş oturum anahtarı, HTTPS bağlantısı, native dosya dışa aktarımı.
 - Docker Compose, isteğe bağlı Caddy HTTPS, kalıcı disk ve tutarlı yedekleme komutu.
 
+## 0.5.0 — Ödüllü reklamlar ve eksik veri akışları
+
+- Google Mobile Ads SDK `25.5.0` ve UMP `4.0.0` native Android'e eklendi. Dağıtılan beta Google'ın resmi **test reklam kimliklerini** kullanır; gerçek gelir üretmez.
+- İlk tahmin ücretsizdir. Günlük veya kişisel tahminin seçimini/güvenini değiştirmek için 1 tamamlanmış ödüllü reklam gerekir. Reklam erken kapatılır veya yüklenemezse mevcut tahmin korunur. Bir ödül yalnızca ilgili kullanıcı ve tahminde, kapanıştan önce bir kez kullanılabilir; ödül isteği 15 dakika geçerlidir. Reklam puan formülünü değiştirmez.
+- Profilde ve 3 ortak tahmin tamamlandıktan sonra isteğe bağlı reklam karşılığında 24 saatlik Aurora teması açılır. Reklam reddedilirse normal ilk tahmin yapma, geçmiş ve sonuç görüntüleme devam eder.
+- Native `onUserEarnedReward` callback'i ve kapanış durumu birlikte kullanılır. Test ortamında sunucunun `complete-test` yolu test callback'ini kabul eder; **production modunda bu yol 403 döner**. Gerçek reklam ödülleri için Google ECDSA imzalı SSV gerekir. Test ortamı reklam sahteciliğine karşı bir production güvenlik sınırı olarak sunulmaz.
+- Döviz: 1/3/7/14/30/90 gün; kripto: 1/4/24 saat ve 3/7/14/30 gün; hava, kültür ve otomatik olaylar: 30 güne kadar hedef gün. Hedef gün seçenekleri bir aralığın toplamı değildir; karttaki kesin tarih ve ölçüm kuralı geçerlidir. Spor vadesini maçın ilan edilmiş tarihi belirler.
+- Süper Lig (`4339`) ve TFF 1. Lig (`4676`) Türkiye futbol seçiminde önceliklidir. Tek bir sonraki maçın başlamış olmasına bakıp listeyi boşaltmak yerine mevcut ve sonraki 3 haftanın round fikstürleri birleştirilir, tekrarlı ve başlamış maçlar elenir. Kaynak hatasında kısmi kapsam açıkça belirtilir.
+- Günlük olaylarda editöre bağımlı boş ekran kaldırıldı: USGS dünya M4,5+ kayıt sayısı, USGS Türkiye çevresi M3,0+ kayıt sayısı ve NOAA günlük maksimum Kp soruları otomatik oluşturulur. Bunlar deprem erken uyarısı veya geleceği bilme iddiası değildir. Türkiye çevresi sorusu ülke sınırı yerine açıkça tanımlanan koordinat kutusunu kullanır.
+- Yeni `ad_tickets` tablosu özel şemadadır. Tek kullanımlık tüketim ve tahmin güncellemesi aynı transaction içinde yapılır. Reklam gerekliliği yalnızca arayüzde değil sunucuda da uygulanır. Hesap silme reklam kayıtlarını da siler.
+
+### Gerçek reklama geçiş
+
+Bu sürüm kullanıcı tarafından seçilen **test modu** ile hazırlanmıştır. Canlı gelir için:
+
+1. AdMob'da Android uygulaması ve rewarded ad unit oluştur; gizlilik mesajlarını UMP için yapılandır. Hedef kitlenin yaş/gizlilik gerekliliklerini belirle ve gerekli politika beyanlarını tamamla.
+2. Derlemeyi `JAG_ADS_MODE=production`, `JAG_ADMOB_APP_ID` ve `JAG_ADMOB_REWARDED_UNIT` ile yap. Varsayılan test kimlikleriyle production derlemesi reddedilir. Bu kimlikler public yapılandırmadır; DB veya service-role sırrı içermez.
+3. Backend `jag.app_settings` içindeki `ads_rewarded_unit` değerini aynı rewarded unit ID'ye, `ads_mode` değerini `production` yap. Bilinmeyen mod değeri reklamı kapatır.
+4. AdMob rewarded unit SSV callback adresi: `https://lzqdnjrherdjfpuzhkgl.supabase.co/functions/v1/just-a-guess/v1/ads/ssv`. Native SDK server-side custom_data alanına sunucunun ürettiği ticket UUID'sini koyar.
+5. Google'ın SSV test aracında imzalı callback'i, gerçek Android test cihazında UMP/ödül/erken kapatma/sunucu gecikmesi akışlarını doğrula. İmzalar yalnızca Google'ın sabit HTTPS anahtar servisinden alınan public key'lerle doğrulanır; transaction_id tekrar kullanılamaz.
+
+Production modunda kullanıcı gizlilik tercihi UMP üzerinden alınır, `canRequestAds` izin vermeden reklam yüklenmez; profil ekranında gizlilik seçeneklerine erişim vardır. Reklam talebi kişiselleştirilmemiştir ve reklam içerik derecesi G ile sınırlanır. Test modunda AdMob'un demo app/unit kimlikleri kullanılır; production modunun onay akışı test modu tarafından taklit edilmez.
+
+Reklam birimi doluluğu ve sideload dağıtımındaki reklam uygunluğu Google'a bağlıdır; SDK entegrasyonu gelir veya her istekte reklam garantisi değildir. Kaynaklar: https://developers.google.com/admob/android/rewarded , https://developers.google.com/admob/android/ssv , https://developers.google.com/admob/android/privacy .
+
 ## 0.4.0 — Keşfet
 
 | Alan | Seçim akışı | Gerçek kaynak / yenileme |
 | --- | --- | --- |
-| Hava | 250 ülke → 3.864 il/eyalet/bölge → şehir araması → 8 ölçüm → 1–7 gün → eşik | GeoNames dizini, Open-Meteo Geocoding ve hava modeli. Güncel gösterge 120 sn; modelin kendi üretim sıklığı geçerlidir. |
-| Spor | Futbol, basketbol, voleybol, buz hokeyi, beyzbol, Amerikan futbolu, hentbol, ragbi → ülke → lig → yaklaşan maç → sonuç/toplam skor (futbolda iki takım golü de var) | TheSportsDB. Maç listesi 90 sn; ücretsiz kaynak ülke başına en fazla 10 lig, genellikle bir sonraki maç. Kesintisiz canlı skor servisi değildir. |
-| Kripto | Aktif USD paritesi → en az 1/4/24 saat sonrası → yükseliş veya mutlak yüzde hareket | Coinbase Exchange. Test anında 405 uygun parite; liste dinamiktir. Gösterge 30 sn, sunucu fiyat önbelleği 20 sn. Sonuç sabit hedef dakikanın mum kapanışıyla hesaplanır. |
-| Döviz | 30 baz/karşıt para birimi → bir sonraki hafta içi ECB referans kuru | Frankfurter v2 / ECB. 15 dk kontrol önbelleği; asıl kaynak günlük yayımlanır. Hedef günün kaydı yoksa eski tarih sonuç diye kullanılmaz. |
+| Hava | 250 ülke → 3.864 il/eyalet/bölge → şehir araması → 8 ölçüm → 1–30 gün → eşik | GeoNames dizini, Open-Meteo Geocoding ve hava modeli. Güncel gösterge 120 sn; modelin kendi üretim sıklığı geçerlidir. |
+| Spor | Futbol, basketbol, voleybol, buz hokeyi, beyzbol, Amerikan futbolu, hentbol, ragbi → ülke → lig → yaklaşan maç → sonuç/toplam skor (futbolda iki takım golü de var) | TheSportsDB. Maç listesi 90 sn; ücretsiz kaynak ülke başına en fazla 10 lig, gelecek dört haftanın fikstürleri birleştirilir. Kesintisiz canlı skor servisi değildir. |
+| Kripto | Aktif USD paritesi → 1 saat–30 gün sonrası → yükseliş veya mutlak yüzde hareket | Coinbase Exchange. Test anında 405 uygun parite; liste dinamiktir. Gösterge 30 sn, sunucu fiyat önbelleği 20 sn. Sonuç sabit hedef dakikanın mum kapanışıyla hesaplanır. |
+| Döviz | 30 baz/karşıt para birimi → 1–90 gün sonraki hafta içi ECB referans kuru | Frankfurter v2 / ECB. 15 dk kontrol önbelleği; asıl kaynak günlük yayımlanır. Hedef günün kaydı yoksa eski tarih sonuç diye kullanılmaz. |
 | Kültür | 8 Wikipedia dili → en çok okunanlar veya müzik/sinema/spor/teknoloji/bilim/tarih → konu → görüntülenme eşiği | Wikimedia Analytics. Günlük UTC sayfa görüntülenmesi; yayın gecikmesi açıkça gösterilir. Sosyal medya veya Google Trends verisi olarak sunulmaz. |
-| Günlük olaylar | Editörün yayımladığı kaynaklı olay → evet/hayır | Mevcut içerik stüdyosu. Yayımlanmış kayıt yoksa açık boş durum gösterilir. |
+| Günlük olaylar | Editörün yayımladığı kaynaklı olay → evet/hayır | Mevcut içerik stüdyosu. Otomatik USGS/NOAA olayları ve yayımlandıkça editör kayıtları birlikte gösterilir. |
 
 Kişisel tahminler ayrı `jag.explorations` tablosunda saklanır. `(user_id,day,slot)` benzersizliği ve 1/2 slot kontrolü eşzamanlı isteklerde dahi günlük sınırı korur. Önizleme 10 dakika geçerlidir ve sunucuda ilgili kullanıcıya bağlıdır; istemcinin gönderdiği koordinat, kural veya başlangıç fiyatına güvenilmez. Düzenleme sorunun kapanışında biter. Kişisel puanlar genel sıralama, ortak soru XP'si ve katılım serisine eklenmez; Keşfet ve Tahminlerim ekranlarında ayrı listelenir. Silme/dışa aktarma kişisel tahminleri de kapsar.
 
@@ -36,13 +61,11 @@ Otomatik yenileme yalnızca ilgili ekran görünürken çalışır. Verinin kayn
 
 `POST /v1/explore` oturum ister. `kind`: categories, countries, regions, cities, leagues, matches, coins, articles, events, quote, preview. Tahmin kaydı `POST /v1/game` / `action: explore-predict` ile yapılır. API anahtarı veya keyfi URL kabul edilmez; sağlayıcı hostları ve ölçümler sunucuda sabittir.
 
-## Gelir planı — henüz etkin değil
+## Gelir ve ödül sınırları
 
-Bu sürümde reklam SDK'sı, gerçek reklam çağrısı, ödeme veya para ödülü bulunmaz. Sonraki adım için tercih: isteğe bağlı ödüllü reklam karşılığında yalnızca kullanıcı hesabına bağlı, devredilemeyen bir profil teması. Önce ödül ve gereken izleme açıkça açıklanır; reddetmek normal oyunu engellemez. Reklam izlemek genel sıralama puanı, sonuç avantajı veya daha fazla rekabet hakkı vermez. Ödül rastgele seçilmez.
+Bu beta resmi Google test reklamları gösterir; production yayıncı kimlikleri henüz eklenmediği için gelir üretmez. Ödül yalnızca bir tahmin düzenlemesi veya 24 saatlik, hesaba bağlı profil temasıdır. Para, kripto, hediye kartı, çekiliş ve paraya çevrilen puan yoktur. Ödül ve gereken izleme, kullanıcı reklamı açmadan önce açıklanır. Politika: https://support.google.com/admob/answer/7313578 .
 
-Gerçek uygulama için AdMob app/ad-unit kimlikleri, gizlilik/izin akışı ve sunucu tarafında reklam tamamlama doğrulaması gerekir. Google'ın ödüllü reklam politikasında nakit, kripto ve hediye kartı gibi doğrudan parasal ödüller yasaktır: https://support.google.com/admob/answer/7313578
-
-Türkiye'de yalnızca “para yatırılmıyor” gerekçesiyle kesin piyango/şans oyunu kapsamı dışında olduğu söylenemez. Ödül, katılım ve kazanan belirleme yapısı birlikte değerlendirilmelidir. Para, hediye, çekiliş veya ekonomik değere çevrilen puan eklenmeden önce Türkiye'de yetkin hukukçu / gerektiğinde MPI değerlendirmesi alınmalıdır: https://www.mpi.gov.tr/lottery . Bu not hukuki sınıflandırma kararı değildir.
+Türkiye'de yalnızca “para yatırılmıyor” gerekçesiyle kesin piyango/şans oyunu kapsamı dışında olduğu söylenemez. Para, hediye, çekiliş veya ekonomik değere çevrilen puan eklenmeden önce yetkin hukukçu / gerektiğinde MPI değerlendirmesi alınmalıdır: https://www.mpi.gov.tr/lottery .
 
 ## Açık sınırlar
 
@@ -140,7 +163,7 @@ pnpm exec tsc --noEmit
 node scripts/build-android.mjs
 ```
 
-Android SDK 35 ve Java 17 gerekir. `ANDROID_HOME` SDK dizinini göstermelidir. Çıktı: `outputs/Just-a-Guess-0.4.0-beta.apk`. `JAG_API_URL=https://api.ornek.com` ile varsayılan sunucu adresi derlemeye eklenebilir; bu adres bir sır değildir. CI de aynı testleri ve APK derlemesini çalıştırır.
+Android SDK 35 ve Java 17 gerekir. `ANDROID_HOME` SDK dizinini göstermelidir. Çıktı: `outputs/Just-a-Guess-0.5.0-beta.apk`. `JAG_API_URL=https://api.ornek.com` ile varsayılan sunucu adresi derlemeye eklenebilir; bu adres bir sır değildir. CI de aynı testleri ve APK derlemesini çalıştırır.
 
 APK içindeki oturum token'ı React/JavaScript'e verilmez. Dış kaynak bağlantıları sistem tarayıcısında açılır; native köprü yalnızca paket içindeki içerikte kullanılır. APK yerel arayüz içerse de oyun kayıtları için backend bağlantısı gereklidir.
 

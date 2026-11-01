@@ -1,3 +1,4 @@
+import {adsRequest,googleCallback} from './rewards.ts';
 import {getState,mutate,runMaintenance,exploreRequest} from './engine.ts';
 import {guest,register,login,resolveSession,logout,deleteAuth,prune,rateLimit,problem,digest} from './auth.ts';
 import {query} from './runtime.ts';
@@ -21,7 +22,8 @@ async function body(req: Request) {
 Deno.serve(async req => {
   try {
     const path = new URL(req.url).pathname.replace(/^\/(?:functions\/v1\/)?just-a-guess(?=\/|$)/,''), method=req.method;
-    if(path==='/health'&&method==='GET') { await query('SELECT 1'); return reply(200,{ok:true,service:'just-a-guess-api',version:'0.4.0',database:'postgres'}); }
+    if(path==='/health'&&method==='GET') { await query('SELECT 1'); return reply(200,{ok:true,service:'just-a-guess-api',version:'0.5.0',database:'postgres'}); }
+    if(path==='/v1/ads/ssv'&&method==='GET')return reply(200,await googleCallback(new URL(req.url)));
     if(method!=='GET'&&method!=='POST') return reply(405,{error:'Bu yöntem desteklenmiyor.'});
     if(path==='/maintenance'&&method==='POST') {
       const secret=req.headers.get('x-jag-cron')||'';
@@ -41,6 +43,7 @@ Deno.serve(async req => {
     if(!current) problem('Oturumun sona erdi. Yeniden giriş yap.',401);
     if(path==='/v1/auth/logout'&&method==='POST') { await logout(token); return reply(200,{message:'Çıkış yapıldı.'}); }
     if(path==='/v1/auth/me'&&method==='GET') return reply(200,{userId:current.user_id,username:current.username,guest:!current.username,expiresAt:current.expires_at});
+    if(path==='/v1/ads'&&method==='POST') {await rateLimit('ads:'+current.user_id,60,60000);return reply(200,await adsRequest(current.user_id,await body(req)));}
     if(path==='/v1/explore'&&method==='POST') {await rateLimit('explore:'+current.user_id,60,60000);return reply(200,await exploreRequest(current.user_id,await body(req)));}
     if(path==='/v1/game'&&method==='GET') return reply(200,{...await getState(current.user_id),account:{guest:!current.username,username:current.username}});
     if(path==='/v1/game'&&method==='POST') { const result=await mutate(current.user_id,await body(req)); if(result.deleted)await deleteAuth(current.user_id); return reply(200,result); }

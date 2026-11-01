@@ -16,6 +16,12 @@ export const METRICS=[
 ];
 export const CURRENCIES=['EUR','USD','TRY','GBP','JPY','CHF','CAD','AUD','CNY','NZD','SEK','NOK','DKK','PLN','CZK','HUF','RON','BRL','MXN','INR','KRW','SGD','HKD','ZAR','IDR','ILS','ISK','MYR','PHP','THB'];
 export const LANGUAGES=[{id:'tr',name:'Türkçe'},{id:'en',name:'English'},{id:'de',name:'Deutsch'},{id:'fr',name:'Français'},{id:'es',name:'Español'},{id:'it',name:'Italiano'},{id:'pt',name:'Português'},{id:'ja',name:'日本語'}];
+export const HORIZONS={weather:[1,2,3,5,7,14,30],crypto:[1,4,24,72,168,336,720],fx:[1,3,7,14,30,90],culture:[1,3,7,14,30],events:[1,3,7,14,30]};
+export const AUTO_EVENTS=[
+ {id:'auto:global-quakes',name:'Dünya · M4,5+ deprem kaydı',detail:'USGS · günlük kayıt sayısı',type:'quake',magnitude:4.5,default:12},
+ {id:'auto:regional-quakes',name:'Türkiye çevresi · M3,0+ deprem kaydı',detail:'USGS · 36–42°K, 26–45°D koordinat kutusu',type:'quake',magnitude:3,regional:true,default:3},
+ {id:'auto:space-kp',name:'Uzay havası · jeomanyetik Kp indeksi',detail:'NOAA · günlük en yüksek 3 saatlik Kp',type:'kp',default:5},
+];
 export const TOPICS:any={
  music:{name:'Müzik',tr:['Taylor_Swift','Sezen_Aksu','Tarkan','Barış_Manço','Duman_(müzik_grubu)'],en:['Taylor_Swift','The_Beatles','Billie_Eilish','BTS','Coldplay']},
  film:{name:'Sinema & dizi',tr:['Interstellar','Harry_Potter','Yüzüklerin_Efendisi','Christopher_Nolan'],en:['Interstellar_(film)','Harry_Potter','The_Lord_of_the_Rings','Christopher_Nolan']},
@@ -55,6 +61,28 @@ export async function articleViews(lang:string,title:string,date:string,allowSta
  return source('wiki-views:'+lang+':'+title+':'+date,`https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/${lang}.wikipedia.org/all-access/user/${encodeURIComponent(title)}/daily/${stamp}/${stamp}`,3600000,allowStale);
 }
 const safeArticle=(a:any)=>a&&typeof a.article==='string'&&a.article.length<160&&!/[:]|^(Main_Page|Anasayfa|Hauptseite|Portada|Pagina_principale|Accueil_principal|メインページ)$|porn|sex|xnxx|xhamster|xvideos|onlyfans|youporn/i.test(a.article);
+export function quakeURL(date:string,definition:any) {
+ const start=date+'T00:00:00.000Z',end=new Date(Date.parse(shiftDay(date,1)+'T00:00:00Z')-1).toISOString();
+ return `https://earthquake.usgs.gov/fdsnws/event/1/count?format=geojson&starttime=${start}&endtime=${end}&minmagnitude=${definition.magnitude}&eventtype=earthquake${definition.regional?'&minlatitude=36&maxlatitude=42&minlongitude=26&maxlongitude=45':''}`;
+}
+export async function leagueMatches(id:string) {
+ if(!/^\d{3,8}$/.test(id))fail('Bir lig seç.');
+ const base='https://www.thesportsdb.com/api/v1/json/123/';
+ const [next,metadata]=await Promise.all([
+   source('matches:'+id,base+'eventsnextleague.php?id='+id,90000,true),
+   source('league:'+id,base+'lookupleague.php?id='+id,86400000,true).catch(()=>null),
+ ]);
+ let seeds=next.data.events||[];
+ if(!seeds.length){try{seeds=(await source('past:'+id,base+'eventspastleague.php?id='+id,900000,true)).data.events||[]}catch{}}
+ const league=metadata?.data.leagues?.[0],season=String(seeds[0]?.strSeason||league?.strCurrentSeason||''),round=Number(seeds[0]?.intRound);
+ const rows=[...seeds];let partial=false;
+ if(Number.isInteger(round)&&round>0&&round<100&&/^[\d-]{4,9}$/.test(season)){
+   const results=await Promise.allSettled(Array.from({length:4},(_,i)=>source(`round:${id}:${season}:${round+i}`,`${base}eventsround.php?id=${id}&r=${round+i}&s=${encodeURIComponent(season)}`,900000,true)));
+   for(const result of results){if(result.status==='fulfilled')rows.push(...(result.value.data.events||[]));else partial=true}
+ }
+ const byId=new Map(rows.filter((e:any)=>String(e.idLeague)===id&&e.strTimestamp&&Number.isFinite(providerTime(e.strTimestamp))&&providerTime(e.strTimestamp)>Date.now()+10*60000&&!/cancelled|postponed|abandoned|finished/i.test(e.strStatus||'')).map((e:any)=>[e.idEvent,e]));
+ return {...next,data:undefined,items:[...byId.values()].sort((a:any,b:any)=>providerTime(a.strTimestamp)-providerTime(b.strTimestamp)).slice(0,60).map((e:any)=>({id:e.idEvent,name:e.strHomeTeam+' – '+e.strAwayTeam,detail:e.strLeague+(e.intRound?' · '+e.intRound+'. hafta':''),date:new Date(providerTime(e.strTimestamp)).toISOString()})),source:'TheSportsDB',partial,note:partial?'Fikstürün bir kısmı alınamadı; doğrulanan maçlar gösteriliyor.':'Yaklaşan maçlar ve dört haftalık fikstür taranır. Başlamış maçlar listelenmez; sağlayıcı kapsamı geçerlidir.'};
+}
 export async function topics(lang:string,branch:string) {
  if(branch!=='trending') {
    const topic=TOPICS[branch];if(!topic)fail('Bir kültür dalı seç.');
@@ -66,7 +94,7 @@ export async function topics(lang:string,branch:string) {
 }
 export async function catalog(body:any) {
  const kind=String(body.kind||'categories');
- if(kind==='categories')return {categories:[{id:'weather',name:'Hava durumu',description:'Ülke → il/eyalet → şehir → ölçüm',count:METRICS.length+' ölçüm · '+geography.length+' ülke'},{id:'sport',name:'Spor',description:'Branş → ülke → lig → maç',count:SPORTS.length+' branş'},{id:'crypto',name:'Kripto',description:'Coin → süre → fiyat hareketi',count:'Coinbase USD pariteleri'},{id:'fx',name:'Döviz',description:'Para birimleri → günlük referans kur',count:CURRENCIES.length+' para birimi'},{id:'culture',name:'Gündem & kültür',description:'Dil → ilgi alanı → Wikipedia konusu',count:LANGUAGES.length+' dil · 7 dal'},{id:'events',name:'Günlük olaylar',description:'Kaynağı belli editör soruları',count:'Yayımlandıkça güncellenir'}],sports:SPORTS,metrics:METRICS,languages:LANGUAGES,topics:[{id:'trending',name:'En çok okunanlar'},...Object.entries(TOPICS).map(([id,t]:any)=>({id,name:t.name}))],currencies:CURRENCIES};
+ if(kind==='categories')return {categories:[{id:'weather',name:'Hava durumu',description:'Ülke → il/eyalet → şehir → ölçüm',count:METRICS.length+' ölçüm · '+geography.length+' ülke'},{id:'sport',name:'Spor',description:'Branş → ülke → lig → maç',count:SPORTS.length+' branş'},{id:'crypto',name:'Kripto',description:'Coin → süre → fiyat hareketi',count:'Coinbase USD pariteleri'},{id:'fx',name:'Döviz',description:'Para birimleri → günlük referans kur',count:CURRENCIES.length+' para birimi'},{id:'culture',name:'Gündem & kültür',description:'Dil → ilgi alanı → Wikipedia konusu',count:LANGUAGES.length+' dil · 7 dal'},{id:'events',name:'Günlük olaylar',description:'Kaynağı belli editör soruları',count:'USGS · NOAA · editörler'}],horizons:HORIZONS,sports:SPORTS,metrics:METRICS,languages:LANGUAGES,topics:[{id:'trending',name:'En çok okunanlar'},...Object.entries(TOPICS).map(([id,t]:any)=>({id,name:t.name}))],currencies:CURRENCIES};
  if(kind==='countries')return {items:[...geography.map(c=>({id:c.code,name:new Intl.DisplayNames(['tr'],{type:'region'}).of(c.code)||c.name})),...(body.sport?[{id:'GB-ENG',name:'İngiltere'},{id:'GB-SCT',name:'İskoçya'},{id:'GB-WLS',name:'Galler'}]:[])].sort((a,b)=>a.name.localeCompare(b.name,'tr')),source:'GeoNames · CC BY 4.0',updatedAt:null,refreshSeconds:0};
  if(kind==='regions')return {items:country(String(body.country)).regions.map(r=>({id:r.id,name:r.name})),source:'GeoNames · CC BY 4.0',updatedAt:null,refreshSeconds:0};
  if(kind==='cities') {
@@ -76,14 +104,12 @@ export async function catalog(body:any) {
  }
  if(kind==='leagues') {
    const sport=String(body.sport);if(!SPORTS.some(s=>s.id===sport))fail('Bir spor branşı seç.');const c=sportCountry(String(body.country));
-   const result=await source('leagues:'+c+':'+sport,`https://www.thesportsdb.com/api/v1/json/123/search_all_leagues.php?c=${encodeURIComponent(c)}&s=${encodeURIComponent(sport)}`,86400000,true);
-   return {...result,data:undefined,items:(result.data.countries||[]).filter((l:any)=>l.strSport===sport).map((l:any)=>({id:l.idLeague,name:l.strLeague,detail:l.strCurrentSeason})),source:'TheSportsDB',note:'Ücretsiz sağlayıcı ülke başına en fazla 10 lig döndürebilir.'};
+   const result=await source('leagues:'+c+':'+sport,`https://www.thesportsdb.com/api/v1/json/123/search_all_leagues.php?c=${encodeURIComponent(c)}&s=${encodeURIComponent(sport)}`,86400000,true).catch(error=>{if(c==='Turkey'&&sport==='Soccer')return {data:{countries:[]},updatedAt:null,stale:true,refreshSeconds:86400};throw error});
+   const known=c==='Turkey'&&sport==='Soccer'?[{id:'4339',name:'Süper Lig',detail:'Türkiye · en üst lig'},{id:'4676',name:'TFF 1. Lig',detail:'Türkiye · 1. Lig'}]:[];
+   const rows=(result.data.countries||[]).filter((l:any)=>l.strSport===sport).map((l:any)=>({id:l.idLeague,name:l.strLeague,detail:l.strCurrentSeason}));
+   return {...result,data:undefined,items:[...known,...rows.filter((l:any)=>!known.some(k=>k.id===l.id))],source:'TheSportsDB',note:'Türkiye için Süper Lig ve TFF 1. Lig ayrıca dahil edilir; diğer liglerde sağlayıcının ücretsiz kapsamı geçerlidir.'};
  }
- if(kind==='matches') {
-   const id=String(body.league);if(!/^\d{3,8}$/.test(id))fail('Bir lig seç.');
-   const result=await source('matches:'+id,`https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=${id}`,90000,true);
-   return {...result,data:undefined,items:(result.data.events||[]).filter((e:any)=>e.idLeague===id&&e.strTimestamp&&providerTime(e.strTimestamp)>Date.now()+10*60000).map((e:any)=>({id:e.idEvent,name:e.strHomeTeam+' – '+e.strAwayTeam,detail:e.strLeague,date:new Date(providerTime(e.strTimestamp)).toISOString()})),source:'TheSportsDB',note:'Ücretsiz API genellikle ligin yalnızca bir sonraki maçını paylaşır. Canlı skor yayını değildir.'};
- }
+ if(kind==='matches')return leagueMatches(String(body.league));
  if(kind==='coins') {
    const result=await products();const priority=['BTC','ETH','SOL','XRP','ADA','DOGE','AVAX','LINK','LTC'];
    return {...result,data:undefined,items:onlineProducts(result.data).map(p=>({id:p.id,name:p.base_currency,detail:p.display_name})).sort((a,b)=>(priority.indexOf(a.name)<0?999:priority.indexOf(a.name))-(priority.indexOf(b.name)<0?999:priority.indexOf(b.name))||a.name.localeCompare(b.name)),source:'Coinbase Exchange'};
@@ -108,6 +134,6 @@ export async function catalog(body:any) {
    }
    fail('Bu kategoride canlı gösterge yok.');
  }
- if(kind==='events')return {items:(await all("SELECT * FROM questions WHERE category='culture' AND status='open' AND close_at>? ORDER BY close_at LIMIT 30",new Date().toISOString())).map(q=>({id:q.id,name:q.title,detail:q.context})),source:'Just a Guess editörleri',updatedAt:new Date().toISOString(),refreshSeconds:60,note:'Editör yayımlamadığında bu alan boş kalır.'};
+ if(kind==='events')return {items:[...AUTO_EVENTS,...(await all("SELECT * FROM questions WHERE category='culture' AND status='open' AND close_at>? ORDER BY close_at LIMIT 30",new Date().toISOString())).map(q=>({id:q.id,name:q.title,detail:q.context}))],source:'USGS · NOAA · Just a Guess editörleri',updatedAt:new Date().toISOString(),refreshSeconds:60,note:'Doğa ve uzay soruları otomatik oluşturulur; editör soruları ayrıca eklenir. Deprem tahminleri afet uyarısı değildir.'};
  fail('Bu veri seçimi desteklenmiyor.');
 }

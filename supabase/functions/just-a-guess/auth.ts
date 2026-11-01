@@ -69,6 +69,7 @@ export async function login(body: any, ip: string) {
 export async function logout(token: string) { await query('DELETE FROM sessions WHERE token_hash=?',[await digest(token)]); }
 export async function deleteAuth(id: string) { await query('DELETE FROM accounts WHERE user_id=?',[id]); }
 export async function prune() {
+  await query('DELETE FROM ad_tickets WHERE expires_at<?',[new Date(Date.now()-7*86400000).toISOString()]);
   await query('DELETE FROM sessions WHERE expires_at<?',[new Date().toISOString()]);
   await query('DELETE FROM auth_limits WHERE reset_at<?',[Date.now()]);
   await query('DELETE FROM source_cache WHERE expires<?',[Date.now()-86400000]);
