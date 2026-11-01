@@ -26,7 +26,10 @@ try{
  const question=state.board.find(q=>Date.parse(q.close_at)>now.getTime());
  if(trHour>=10&&trHour<22&&question){
    await call('/v1/game','POST',{action:'predict',id:question.id,choice:0,confidence:80},login.token);
-   await call('/v1/game','POST',{action:'predict',id:question.id,choice:1,confidence:65},login.token);
+   const ticket=await call('/v1/ads','POST',{action:'prepare',purpose:'edit',target:'daily/'+question.id},login.token);assert(ticket.test,'Live QA edits require test ad mode');
+   await call('/v1/ads','POST',{action:'complete-test',ticketId:ticket.ticketId},login.token);
+   await call('/v1/game','POST',{action:'predict',id:question.id,choice:1,confidence:65,adTicket:ticket.ticketId},login.token);
+   await call('/v1/ads','POST',{action:'prepare',purpose:'edit',target:'daily/'+question.id},login.token,409);
    const predicted=await call('/v1/game','GET',undefined,login.token);assert.equal(predicted.stats.total,1);assert.equal(predicted.board.find(q=>q.id===question.id).prediction.choice,1);ok('prediction saved and editable without duplicate');
    await call('/v1/game','POST',{action:'predict',id:question.id,choice:99,confidence:65},login.token,400);ok('invalid selection rejected');
  }else console.log('SKIP daily prediction: outside real question window');

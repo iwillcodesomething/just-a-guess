@@ -19,15 +19,16 @@ try{
  const coins=await catalog({kind:'coins'});assert(coins.items.some(c=>c.id==='BTC-USD'));pass('current Coinbase product list ('+coins.items.length+' USD pairs)');
  const crypto=await catalog({kind:'preview',category:'crypto',coin:'BTC-USD',market:'up',hours:1});assert(crypto.rule.baseline>0);await predict(crypto);pass('current crypto price and fixed future target');
  const fx=await catalog({kind:'preview',category:'fx',base:'USD',quote:'TRY'});assert(fx.rule.baseline>0);assert.equal(fx.source,'Frankfurter / ECB');pass('live ECB reference rate and exact target date');
- await call('/v1/game',{action:'explore-predict',id:fx.id,choice:0,confidence:80},409);pass('Postgres enforces two personal predictions per day');
+ await predict(fx);pass('third free personal prediction accepted');
  const wiki=await catalog({kind:'preview',category:'culture',language:'tr',branch:'music',article:'Taylor_Swift',threshold:1000});assert(wiki.snapshot.values[0].value>=0);pass('real Wikipedia daily pageview baseline');
+ await call('/v1/game',{action:'explore-predict',id:wiki.id,choice:0,confidence:80},409);pass('Postgres enforces three free personal predictions per day');
  const leagues=await catalog({kind:'leagues',country:'TR',sport:'Soccer'});assert(leagues.items.length>0);pass('country → sport → actual leagues');
  const league=leagues.items.find(l=>l.id==='4339')||leagues.items[0];
  const matches=await catalog({kind:'matches',league:league.id});
  if(matches.items.length){const q=await catalog({kind:'preview',category:'sport',match:matches.items[0].id,market:'winner'});assert.equal(q.options.length,3);pass('league → actual upcoming match → three-way question')}
  else console.log('SKIP sport preview: provider has no upcoming match within the free coverage');
- const state=await call('/v1/game');assert.equal(state.explore.used,2);assert.equal(state.stats.total,0);assert.equal(state.ranks.week.find(r=>r.me).points,0);pass('personal results isolated from competitive table');
- const exported=await call('/v1/export');assert.equal(exported.explore.history.length,2);pass('personal predictions included in export');
+ const state=await call('/v1/game');assert.equal(state.explore.used,3);assert.equal(state.stats.total,0);assert.equal(state.ranks.week.find(r=>r.me).points,0);pass('personal results isolated from competitive table');
+ const exported=await call('/v1/export');assert.equal(exported.explore.history.length,3);pass('personal predictions included in export');
 }finally{
  if(account){await call('/v1/game',{action:'delete-account',confirm:'SİL'});pass('temporary QA account and predictions removed')}
 }
