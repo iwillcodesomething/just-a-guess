@@ -19,10 +19,14 @@ jobs:
           version: '11.25.0'
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Verify shared cloud rules
+        run: node scripts/sync-cloud.mjs --check
       - name: API integration tests
         run: pnpm test
       - name: Check mobile types
         run: pnpm exec tsc --noEmit
+      - name: Verify phone and tablet user flows in Chromium
+        run: node scripts/test-ui.mjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -40,5 +44,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Just-a-Guess-Android-beta
-          path: outputs/Just-a-Guess-0.3.0-beta.apk
+          path: outputs/Just-a-Guess-0.4.0-beta.apk
           retention-days: 14

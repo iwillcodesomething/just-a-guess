@@ -5,4 +5,4 @@ function run(command,args,cwd=process.cwd()){const result=spawnSync(command,args
 run(process.execPath,['node_modules/vite/bin/vite.js','build','--config','mobile/vite.config.ts']);
 mkdirSync('android/app/src/main/assets',{recursive:true});cpSync('mobile/dist','android/app/src/main/assets',{recursive:true});
 const gradle=process.env.JAG_GRADLE||resolve('android/gradlew');run(gradle,['--no-daemon','assembleDebug',...(process.env.JAG_OFFLINE?['--offline']:[])],resolve('android'));
-mkdirSync('outputs',{recursive:true});cpSync('android/app/build/outputs/apk/debug/app-debug.apk','outputs/Just-a-Guess-0.3.0-beta.apk');
+mkdirSync('outputs',{recursive:true});cpSync('android/app/build/outputs/apk/debug/app-debug.apk','outputs/Just-a-Guess-0.4.0-beta.apk');
