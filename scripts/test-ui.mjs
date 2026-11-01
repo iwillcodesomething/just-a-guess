@@ -74,6 +74,14 @@ try{
  await cdp('Emulation.setDeviceMetricsOverride',{width:768,height:1024,deviceScaleFactor:1,mobile:true});
  assert(await evaluate(`document.documentElement.scrollWidth<=window.innerWidth`));console.log('PASS tablet layout without horizontal overflow');
  assert.deepEqual(exceptions,[]);console.log('PASS no browser runtime exceptions');
+}catch(error){
+ console.error('UI failure:',error);
+ console.error('Browser exceptions:',exceptions);
+ try{console.error('UI snapshot:',await evaluate('document.body.innerText.slice(0,5000)'))}catch{}
+ throw error;
 }finally{
- if(socket)socket.close();browser.kill();await vite.close();await new Promise(resolve=>server.close(resolve));rmSync(profile,{recursive:true,force:true});
+ if(socket)socket.close();
+ const exited=new Promise(resolve=>browser.once('exit',resolve));browser.kill();await Promise.race([exited,pause(1500)]);
+ await vite.close();await new Promise(resolve=>server.close(resolve));
+ try{rmSync(profile,{recursive:true,force:true,maxRetries:3,retryDelay:100})}catch{}
 }
