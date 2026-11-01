@@ -1,0 +1,41 @@
+name: Android APK and API checks
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: API integration tests
+        run: pnpm test
+      - name: Check mobile types
+        run: pnpm exec tsc --noEmit
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify Android server address policy
+        run: node scripts/test-android-address.mjs
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build self-contained Android beta APK
+        run: node scripts/build-android.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Just-a-Guess-Android-beta
+          path: outputs/Just-a-Guess-0.2.0-beta.apk
+          retention-days: 14

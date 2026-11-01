@@ -1,0 +1,5 @@
+package app.justaguess.mobile;
+import java.net.URI;
+final class ServerAddress {
+ static String normalize(String value,boolean allowLocalHttp){try{URI uri=URI.create(value.trim());String host=uri.getHost();boolean secure="https".equalsIgnoreCase(uri.getScheme());boolean local="localhost".equals(host)||"127.0.0.1".equals(host);if(host!=null&&host.matches("(?:[0-9]{1,3}\\.){3}[0-9]{1,3}")){String[] parts=host.split("\\.");int[] octets=new int[4];boolean valid=true;for(int i=0;i<4;i++){octets[i]=Integer.parseInt(parts[i]);if(octets[i]>255||(parts[i].length()>1&&parts[i].startsWith("0")))valid=false;}local=valid&&(octets[0]==10||(octets[0]==192&&octets[1]==168)||(octets[0]==172&&octets[1]>=16&&octets[1]<=31)||(octets[0]==127&&octets[1]==0&&octets[2]==0&&octets[3]==1));}if(host==null||uri.getUserInfo()!=null||uri.getQuery()!=null||uri.getFragment()!=null||!(secure||(allowLocalHttp&&"http".equals(uri.getScheme())&&local))||!(uri.getPath()==null||uri.getPath().isEmpty()||uri.getPath().equals("/")))return null;return uri.getScheme().toLowerCase()+"://"+uri.getRawAuthority();}catch(Exception e){return null;}}
+}

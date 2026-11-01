@@ -1,0 +1,7 @@
+.git
+node_modules
+android
+mobile
+outputs
+backend/data
+.env

@@ -1,0 +1,35 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - game-data:/data
+    environment:
+      DATABASE_PATH: /data/game.sqlite
+      PORT: 8080
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+  caddy:
+    image: caddy:2-alpine
+    profiles: [production]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  game-data:
+  caddy-data:
+  caddy-config:
