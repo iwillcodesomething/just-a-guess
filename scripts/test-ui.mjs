@@ -31,7 +31,7 @@ async function pause(ms=100){return new Promise(r=>setTimeout(r,ms))}
 async function targets(){for(let i=0;i<100;i++){try{return await(await realFetch('http://127.0.0.1:9222/json/list')).json()}catch{await pause()}}throw new Error('Chromium did not start')}
 function cdp(method,params={}){return new Promise((resolve,reject)=>{const id=++seq;requests.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}))})}
 async function evaluate(expression){const result=await cdp('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw new Error(result.exceptionDetails.text);return result.result.value}
-async function wait(expression,label){for(let i=0;i<100;i++){if(await evaluate(expression))return;await pause()}throw new Error('UI timeout: '+label)}
+async function wait(expression,label){for(let i=0;i<100;i++){if(await evaluate(`!!(${expression})`))return;await pause()}throw new Error('UI timeout: '+label)}
 async function click(selector){await evaluate(`document.querySelector(${JSON.stringify(selector)})?.click()`)}
 async function select(label,value){await evaluate(`(()=>{const el=[...document.querySelectorAll('.explore-field')].find(e=>e.textContent.includes(${JSON.stringify(label)}))?.querySelector('select');if(!el)throw Error('Missing select');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event('change',{bubbles:true}))})()`)}
 async function category(id){await click('.explore-category.'+id);await wait(`document.querySelector('.explore-builder h2')`,'builder')}
